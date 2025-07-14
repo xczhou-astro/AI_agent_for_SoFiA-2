@@ -28,8 +28,8 @@ and
 - `utils.py`: Utility functions for analysis and plotting.  
 
 `dataset` includes relevant datasets:  
-- `development`: Development sky map (0.25 square degrees) and truth catalog from SKA-SDC2.  
-- `development_large`: Large development sky map (1 square degrees) and truth catalog from SKA-SDC2.  
+- `development`: Development sky map (0.25 square degrees) and truth catalog from SKA-SDC2 (replace the placeholders with actual files).  
+- `development_large`: Large development sky map (1 square degrees) and truth catalog from SKA-SDC2 (replace the placeholders with actual files).  
 - `temp_par_file.par`: Template par file for SoFiA-2.  
 
 ## Run
