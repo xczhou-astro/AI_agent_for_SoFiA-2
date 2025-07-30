@@ -2,14 +2,12 @@ from joblib import Parallel, delayed
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-from gymnasium.vector import AsyncVectorEnv
 from astropy.io import fits
 from astropy.wcs import WCS
 import os
 import sys
 import json
 import subprocess
-import time
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(project_root, "scripts"))
@@ -22,9 +20,9 @@ class SoFiAEnv(gym.Env):
     Custom Environment for SoFiA parameter optimization using RL
     """
     def __init__(self, input_cube, temp_par_file, workspace, 
-                 truth_catalogue, input_regions=None, 
+                 truth_catalogue, input_regions, input_region_names=None,
                  max_steps=100, plot_interval=50,
-                 benchmarks=[], param_configs=None):
+                 benchmarks=[], param_configs=None, sofia_num_threads=None):
         super(SoFiAEnv, self).__init__()
         
         self.input_cube = input_cube
@@ -32,8 +30,10 @@ class SoFiAEnv(gym.Env):
         self.workspace = workspace
         self.truth_catalogue = truth_catalogue
         self.input_regions = input_regions
+        self.input_region_names = input_region_names
         self.plot_interval = plot_interval
         self.benchmarks = benchmarks if len(benchmarks) > 0 else None
+        self.sofia_num_threads = sofia_num_threads
         
         self.num_of_regions = len(input_regions)
         
@@ -41,18 +41,19 @@ class SoFiAEnv(gym.Env):
         
         os.makedirs(self.workspace, exist_ok=True) # base
         
-        # print(self.input_regions)
+        if self.input_region_names is None:
+            self.region_names = [f'{i}' for i in range(self.num_of_regions)]
+        else:
+            self.region_names = self.input_region_names
+        
+        print(self.region_names)
         
         self.region_paths = []
-        self.region_names = []
-        for region in self.input_regions:
-
-            path = '_'.join(map(str, region))
-            region_path = os.path.join(self.workspace, path)
-            self.region_paths.append(region_path)
+        for region_name in self.region_names:
+            region_path = os.path.join(self.workspace, region_name)
             os.makedirs(region_path, exist_ok=True)
-            self.region_names.append(path)
-        
+            self.region_paths.append(region_path)
+            
         self.data_params = {
             'input.data': input_cube,
         }
@@ -69,27 +70,23 @@ class SoFiAEnv(gym.Env):
                 'reliability.threshold': {'low': 0.0, 'high': 0.6, 'type': 'continuous'},
                 'reliability.minSNR': {'low': 0.0, 'high': 2.0, 'type': 'continuous'},
                 'reliability.scaleKernel': {'low': 0.1, 'high': 0.7, 'type': 'continuous'},
+                # 'linker.radiusXY': {'low': 1, 'high': 5, 'type': 'discrete'}, # discrete parameters
+                # 'linker.radiusZ': {'low': 1, 'high': 5, 'type': 'discrete'},
+                # 'linker.minSizeXY': {'low': 1, 'high': 5, 'type': 'discrete'},
+                # 'linker.minSizeZ': {'low': 1, 'high': 5, 'type': 'discrete'},
             }
         else:
             self.param_configs = param_configs
             
-        with open(f'{self.workspace}/config.json', 'w') as f:
+        with open(f'{self.workspace}/param_configs.json', 'w') as f:
             json.dump(self.param_configs, f, indent=4, default=custom_serialier)
-            
-        for key, value in self.param_configs.items():
-            print(key, value['low'], value['high'])
         
         # Define action space (normalized between -1 and 1)
         self.action_space = spaces.Box(
             low=-1, high=1, shape=(len(self.param_configs),), dtype=np.float32
         )
         
-        # Define observation space (current parameters + performance metrics)
-        # augmentated state
-        # self.observation_space = spaces.Box(
-        #     low=-np.inf, high=np.inf, shape=(len(self.param_configs) + 3,), dtype=np.float32
-        # )
-        # original state
+        # state
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(len(self.param_configs) + 1,), dtype=np.float32
         )
@@ -101,11 +98,7 @@ class SoFiAEnv(gym.Env):
         self.best_score_ratio_recorder = -np.inf
         os.makedirs(f'{self.workspace}/best_params', exist_ok=True)
         
-        self.step_recorder = 0 # total step
-        
-        self.reward_scale_factor = 5
-        self.reward_exp_factor = 3
-        self.improvement_threshold = 0.005
+        self.step_recorder = 0 # total step recorder
         
         self._setup_logging()
         
@@ -118,9 +111,13 @@ class SoFiAEnv(gym.Env):
         
         with open(self.reward_recorder, 'w') as f:
             
-            columns = 'episode,step,scfind.threshold,reliability.threshold,reliability.minSNR,reliability.scaleKernel'
-            for i in range(self.num_of_regions):
-                columns += f',score_{i},score_ratio_{i},num_of_matched_sources_{i}'
+            columns = 'episode,step'
+            for key, item in self.param_configs.items():
+                columns += f',{key}'
+            
+            for name in self.region_names:
+                columns += f',score_{name},score_ratio_{name},num_of_matched_sources_{name}'
+            
             columns += ',total_score,total_score_ratio,total_num_of_matched_sources'
             columns += ',reward\n'
             
@@ -161,8 +158,8 @@ class SoFiAEnv(gym.Env):
             high = config['high']
             scaled_action = (action[i] + 1) / 2  # Scale to [0, 1]
             if config['type'] == 'discrete':
-                new_value = low + int(scaled_action * (high - low))
-                self.current_params[param] = max(low, min(high, new_value))
+                new_value = low + np.around(scaled_action * (high - low)).astype(int)
+                self.current_params[param] = new_value
             elif config['type'] == 'continuous':
                 new_value = low + scaled_action * (high - low)
                 self.current_params[param] = new_value
@@ -180,12 +177,12 @@ class SoFiAEnv(gym.Env):
         done = self._check_done(is_max_step)
         
         reward = self._calculate_reward(total_recorder['score_ratio'], is_max_step, is_initial_step)
-
+        
         with open(self.reward_recorder, 'a') as f:
             
-            data = f'{self.episode_count}, {self.step_count},'
-            data += f'{self.current_params["scfind.threshold"]}, {self.current_params["reliability.threshold"]},'
-            data += f'{self.current_params["reliability.minSNR"]}, {self.current_params["reliability.scaleKernel"]}'
+            data = f'{self.episode_count}, {self.step_count}'
+            for param in self.param_configs.keys():
+                data += f',{self.current_params[param]}'
             
             for i in range(self.num_of_regions):
                 data += f',{score_regions[i]}, {score_ratio_regions[i]}, {num_of_matched_sources_regions[i]}'
@@ -198,9 +195,9 @@ class SoFiAEnv(gym.Env):
         
         if self.step_recorder % self.plot_interval == 0 and self.step_recorder > 0:
             if self.benchmarks is not None:
-                plot_summary_multiple_regions(self.reward_recorder, self.num_of_regions, self.workspace, self.benchmarks)
+                plot_summary_multiple_regions(self.reward_recorder, self.num_of_regions, self.region_names, self.workspace, self.benchmarks)
             else:
-                plot_summary_region_no_benchmarks(self.reward_recorder, self.num_of_regions, self.workspace)
+                plot_summary_region_no_benchmarks(self.reward_recorder, self.num_of_regions, self.region_names, self.workspace)
         
         self.step_recorder += 1
         
@@ -227,6 +224,8 @@ class SoFiAEnv(gym.Env):
         
         self.data_params['output.directory'] = sofia_output_path
         self.data_params['input.region'] = ', '.join(map(str, self.input_regions[idx]))
+        if self.sofia_num_threads is not None:
+            self.data_params['pipeline.threads'] = self.sofia_num_threads
         
         params = self.current_params | self.data_params
         
@@ -352,38 +351,6 @@ class SoFiAEnv(gym.Env):
         
         return done
     
-    # def _calculate_reward(self, score_ratio, is_max_step, is_initial_step):
-    #     """
-    #     Improved reward function with better stability and learning dynamics
-    #     """
-    #     # Handle failed runs
-    #     if score_ratio < 0:
-    #         return -5.0
-        
-    #     # More moderate exponential scaling for better stability
-    #     reward = self.reward_scale_factor * (np.exp(self.reward_exp_factor * score_ratio) - 1.0)
-        
-    #     # Calculate improvement with threshold to reduce noise
-    #     improvement = score_ratio - self.previous_score_ratio
-        
-    #     # Only reward significant improvements to reduce fluctuations
-    #     if improvement > self.improvement_threshold:
-    #         reward += 1.0
-    #     elif improvement < -self.improvement_threshold:
-    #         reward -= 1.0
-        
-    #     # Reward for achieving new best score (not just improvement)
-    #     if not is_initial_step and score_ratio > self.best_score_ratio_recorder:
-    #         reward += 2.0
-            
-    #     # Small penalty for episode end to encourage efficiency
-    #     if is_max_step:
-    #         reward -= 1.0
-        
-    #     self.previous_score_ratio = score_ratio
-        
-    #     return reward 
-    
     def _calculate_reward(self, score_ratio, is_max_step, is_initial_step):
         # Handle failed runs
         if score_ratio < 0:
@@ -394,7 +361,7 @@ class SoFiAEnv(gym.Env):
         reward = scale_factor * (np.exp(exp_factor * score_ratio) - 1.0)
         
         improvement = score_ratio - self.previous_score_ratio
-        # improvement_threshold = 0.008
+        # improvement_threshold = 0.005
         improvement_threshold = 0
             
         if not is_initial_step:

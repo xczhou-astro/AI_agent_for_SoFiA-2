@@ -468,73 +468,56 @@ def regularly_plots(scores, score_ratios, rewards, benchmark, output_path):
     plt.savefig(os.path.join(output_path, 'regularly_plots.png'))
     plt.close()
 
-def plot_summary_multiple_regions(recorder, num_of_regions, output_path, benchmarks):
+def plot_summary_multiple_regions(recorder, num_of_regions, region_names, output_path, benchmarks):
     
     recorder = pd.read_csv(recorder)
     
     for i in range(num_of_regions):
         
-        scores = recorder[f'score_{i}']
-        score_ratios = recorder[f'score_ratio_{i}']
+        scores = recorder[f'score_{region_names[i]}']
+        score_ratios = recorder[f'score_ratio_{region_names[i]}']
         
-        fig, axs = plt.subplots(2, 1, figsize=(10, 10))
+        fig, axs = plt.subplots(1, 1, figsize=(10, 5))
         
-        axs[0].plot(np.arange(len(scores)), scores)
-        axs[0].set_xlabel('Step')
-        axs[0].set_ylabel('Score')
-        axs[0].set_title('Score')
-        axs[0].set_ylim(0, None)
-        axs[0].axhline(y=benchmarks[i]['score'], color='r', linestyle='--')
+        axs.plot(np.arange(len(scores)), scores)
+        axs.set_xlabel('Step')
+        axs.set_ylabel('Score')
+        axs.set_title('Score')
+        axs.set_ylim(0, None)
+        axs.axhline(y=benchmarks[i], color='r', linestyle='--')
+        axs.set_title(region_names[i])
         
-        axs[1].plot(np.arange(len(score_ratios)), score_ratios)
-        axs[1].set_xlabel('Step')
-        axs[1].set_ylabel('Score Ratio')
-        axs[1].set_title('Score Ratio')
-        axs[1].set_ylim(0, None)
-        axs[1].axhline(y=benchmarks[i]['score_ratio'], color='r', linestyle='--')
-        
-        plt.savefig(os.path.join(output_path, f'summary_region_{i}.png'))
-            
+        plt.savefig(os.path.join(output_path, f'summary_{region_names[i]}.png'))
         plt.close()
     
     
-    fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+    fig, axs = plt.subplots(1, 1, figsize=(10, 5))
     
     scores = recorder['total_score']
-    score_ratios = recorder['total_score_ratio']
-    rewards = recorder['reward']
     
-    total_benchmark_score = sum([benchmark['score'] for benchmark in benchmarks])
-    total_num_of_sources = sum([benchmark['num_of_sources'] for benchmark in benchmarks])
+    total_benchmark = sum(benchmarks)
     
-    total_benchmark_score_ratio = total_benchmark_score / total_num_of_sources
+    axs.plot(np.arange(len(scores)), scores)
+    axs.set_xlabel('Step')
+    axs.set_ylabel('Score')
+    axs.set_title('Score')
+    axs.set_ylim(0, None)
+    axs.axhline(y=total_benchmark, color='r', linestyle='--')
     
-    labels = ['Score', 'Score Ratio', 'Reward']
-    threshold = [total_benchmark_score, total_benchmark_score_ratio, None]
-
-    for i, values in enumerate([scores, score_ratios, rewards]):
-        axs[i].plot(np.arange(len(values)), values)
-        axs[i].set_xlabel('Step')
-        axs[i].set_ylabel(labels[i])
-        axs[i].set_ylim(0, None)
-        
-        if threshold[i] is not None:
-            axs[i].axhline(y=threshold[i], color='r', linestyle='--')
-            
     plt.savefig(os.path.join(output_path, 'summary_total.png'))
     plt.close()
     
     
-def plot_summary_region_no_benchmarks(recorder, num_of_regions, output_path):
+def plot_summary_region_no_benchmarks(recorder, num_of_regions, region_names, output_path):
     
     recorder = pd.read_csv(recorder)
     
     for i in range(num_of_regions):
         
-        scores = recorder[f'score_{i}']
-        score_ratios = recorder[f'score_ratio_{i}']
+        scores = recorder[f'score_{region_names[i]}']
+        score_ratios = recorder[f'score_ratio_{region_names[i]}']
         
-        fig, axs = plt.subplots(2, 1, figsize=(10, 10))
+        fig, axs = plt.subplots(1, 1, figsize=(10, 10))
         
         axs[0].plot(np.arange(len(scores)), scores)
         axs[0].set_xlabel('Step')
@@ -542,28 +525,17 @@ def plot_summary_region_no_benchmarks(recorder, num_of_regions, output_path):
         axs[0].set_title('Score')
         axs[0].set_ylim(0, None)
         
-        axs[1].plot(np.arange(len(score_ratios)), score_ratios)
-        axs[1].set_xlabel('Step')
-        axs[1].set_ylabel('Score Ratio')
-        axs[1].set_title('Score Ratio')
-        axs[1].set_ylim(0, None)
-        
-        plt.savefig(os.path.join(output_path, f'summary_region_{i}.png'))
+        plt.savefig(os.path.join(output_path, f'summary_{region_names[i]}.png'))
         plt.close()
     
-    fig, axs = plt.subplots(3, 1, figsize=(10, 15))
+    fig, axs = plt.subplots(1, 1, figsize=(10, 5))
     
     scores = recorder['total_score']
-    score_ratios = recorder['total_score_ratio']
-    rewards = recorder['reward']
     
-    labels = ['Score', 'Score Ratio', 'Reward']
-    
-    for i, values in enumerate([scores, score_ratios, rewards]):
-        axs[i].plot(np.arange(len(values)), values)
-        axs[i].set_xlabel('Step')
-        axs[i].set_ylabel(labels[i])
-        axs[i].set_ylim(0, None)
+    axs.plot(np.arange(len(scores)), scores)
+    axs.set_xlabel('Step')
+    axs.set_ylabel('Score')
+    axs.set_ylim(0, None)
         
     plt.savefig(os.path.join(output_path, 'summary_total.png'))
     plt.close()
