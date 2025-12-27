@@ -1,5 +1,7 @@
 # AI agent for source detection with SoFiA-2  
 
+This work is accepted by RAA. ArXiv: https://arxiv.org/abs/2512.00769
+
 ## Dependence
 
 ```Python
