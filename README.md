@@ -1,6 +1,7 @@
 # AI agent for source detection with SoFiA-2  
 
-This work is accepted by RAA. ArXiv: https://arxiv.org/abs/2512.00769
+This work is accepted by RAA.  
+Paper link: https://iopscience.iop.org/article/10.1088/1674-4527/ae2d0c
 
 ## Dependence
 
